@@ -29,4 +29,4 @@ Breast Cancer Wisconsin (Diagnostic), cargado directamente desde
   ajustables según el umbral de decisión (threshold)
 
 ## Repositorio
-[Enlace al repositorio de GitHub/GitLab aquí]
+https://github.com/JJ0s3/tarea3-dashboard-breast-cancer
