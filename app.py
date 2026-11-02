@@ -1,10 +1,7 @@
 # Tarea #3 - Dashboards en Python
 # Nombre: [JUAN MORALES]
-# Cédula: [8-997-508]
 # Grupo 1IL-133
 
-import numpy as np
-import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from dash import Dash, dcc, html, Input, Output
@@ -12,7 +9,8 @@ from sklearn.datasets import load_breast_cancer
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import confusion_matrix, roc_curve, auc
+from sklearn.metrics import roc_curve, auc
+from metrics import threshold_metrics
 
 # ------------------------------------------------------------------
 # 1. Carga y preparación de datos
@@ -53,15 +51,19 @@ def build_histogram(feature):
     fig = px.histogram(
         df, x=feature, color="diagnosis", barmode="overlay",
         nbins=30, opacity=0.7,
-        title=f"Distribución de {feature} por diagnóstico"
+        title=f"Distribución por diagnóstico<br>{feature}"
     )
+    fig.update_layout(title_font_size=14, margin=dict(l=60, r=24, t=80, b=100),
+                      legend=dict(orientation="h", y=-0.22, x=0))
     return fig
 
 def build_boxplot(feature):
     fig = px.box(
         df, x="diagnosis", y=feature, color="diagnosis",
-        title=f"Boxplot de {feature} por diagnóstico"
+        title=f"Boxplot por diagnóstico<br>{feature}"
     )
+    fig.update_layout(title_font_size=14, margin=dict(l=60, r=24, t=80, b=100),
+                      legend=dict(orientation="h", y=-0.22, x=0))
     return fig
 
 def build_heatmap():
@@ -70,18 +72,22 @@ def build_heatmap():
         corr, color_continuous_scale="RdBu_r", origin="lower",
         title="Mapa de calor de correlación entre variables"
     )
+    fig.update_layout(height=640, title_font_size=14,
+                      margin=dict(l=170, r=70, t=70, b=170))
     return fig
 
 def build_confusion_matrix(threshold):
-    y_pred = (y_proba >= threshold).astype(int)
-    cm = confusion_matrix(y_test, y_pred)
+    cm, _, _ = threshold_metrics(y_test, y_proba, threshold)
     fig = px.imshow(
         cm, text_auto=True,
-        x=["Pred: Maligno", "Pred: Benigno"],
-        y=["Real: Maligno", "Real: Benigno"],
+        x=["Pred:<br>Maligno", "Pred:<br>Benigno"],
+        y=["Real:<br>Maligno", "Real:<br>Benigno"],
         color_continuous_scale="Blues",
-        title=f"Matriz de confusión (umbral = {threshold:.2f})"
+        title=f"Matriz de confusión<br>Umbral = {threshold:.2f}"
     )
+    fig.update_layout(title_font_size=14, margin=dict(l=70, r=35, t=80, b=80),
+                      coloraxis_colorbar=dict(thickness=12))
+    fig.update_xaxes(tickangle=0)
     return fig
 
 def build_roc_curve(threshold):
@@ -91,13 +97,15 @@ def build_roc_curve(threshold):
     fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines",
                               line=dict(dash="dash"), name="Azar"))
 
-    # Punto en la curva correspondiente al umbral seleccionado
-    idx = (np.abs(roc_thresholds - threshold)).argmin()
+    # El punto usa las mismas predicciones que la matriz de confusión.
+    _, current_fpr, current_tpr = threshold_metrics(y_test, y_proba, threshold)
     fig.add_trace(go.Scatter(
-        x=[fpr[idx]], y=[tpr[idx]], mode="markers",
+        x=[current_fpr], y=[current_tpr], mode="markers",
         marker=dict(size=12, color="red"), name="Umbral actual"
     ))
-    fig.update_layout(title="Curva ROC - Regresión Logística",
+    fig.update_layout(title="Curva ROC · Regresión logística", title_font_size=14,
+                       margin=dict(l=60, r=24, t=70, b=120),
+                       legend=dict(orientation="h", y=-0.25, x=0),
                        xaxis_title="Falsos Positivos (FPR)",
                        yaxis_title="Verdaderos Positivos (TPR)")
     return fig
@@ -114,38 +122,45 @@ app.layout = html.Div([
            style={"textAlign": "center"}),
 
     html.Div([
-        html.Label("Selecciona una característica (feature):"),
+        html.Label("Selecciona una característica (feature):", htmlFor="feature-dropdown"),
         dcc.Dropdown(
             id="feature-dropdown",
             options=[{"label": f, "value": f} for f in feature_cols],
             value="mean radius",
             clearable=False
         ),
-    ], style={"width": "50%", "margin": "auto", "padding": "10px"}),
+    ], style={"width": "min(100%, 760px)", "margin": "auto", "padding": "10px"}),
 
     html.Div([
-        dcc.Graph(id="histogram-graph"),
-        dcc.Graph(id="boxplot-graph"),
-    ], style={"display": "flex"}),
+        dcc.Graph(id="histogram-graph", responsive=True),
+        dcc.Graph(id="boxplot-graph", responsive=True),
+    ], className="chart-grid"),
 
-    dcc.Graph(id="heatmap-graph", figure=build_heatmap()),
+    html.P("Correlaciones: en pantallas pequeñas puedes desplazar la matriz horizontalmente."),
+    html.Div(dcc.Graph(id="heatmap-graph", figure=build_heatmap(), responsive=True),
+             className="correlation-scroll", tabIndex=0,
+             role="region", **{"aria-label": "Matriz de correlaciones desplazable"}),
 
     html.Hr(),
     html.H2("Modelo: Regresión Logística", style={"textAlign": "center"}),
 
+    html.P("Clase positiva: Benigno (1). Se predice Benigno cuando su probabilidad es mayor o igual al umbral."),
+    html.P("Falso positivo: maligno clasificado como benigno. Falso negativo: benigno clasificado como maligno."),
+    html.P("Ejercicio educativo con datos públicos; no validado para decisiones clínicas."),
     html.Div([
         html.Label("Umbral de decisión (threshold):"),
         dcc.Slider(
             id="threshold-slider",
             min=0.1, max=0.9, step=0.05, value=0.5,
+            allow_direct_input=False,
             marks={i / 10: str(i / 10) for i in range(1, 10)}
         ),
-    ], style={"width": "60%", "margin": "auto", "padding": "10px"}),
+    ], style={"width": "min(100%, 760px)", "margin": "auto", "padding": "10px"}),
 
     html.Div([
-        dcc.Graph(id="confusion-graph"),
-        dcc.Graph(id="roc-graph"),
-    ], style={"display": "flex"}),
+        dcc.Graph(id="confusion-graph", responsive=True),
+        dcc.Graph(id="roc-graph", responsive=True),
+    ], className="chart-grid"),
 ])
 
 # ------------------------------------------------------------------
@@ -169,4 +184,4 @@ def update_model_graphs(threshold):
 
 # ------------------------------------------------------------------
 if __name__ == "__main__":
-    app.run(debug=True)
+    app.run(debug=False)
